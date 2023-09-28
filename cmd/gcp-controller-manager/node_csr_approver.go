@@ -814,10 +814,12 @@ func groupHasInstance(ctx *controllerContext, groupLocation, groupName string, i
 	recordMetric := csrmetrics.OutboundRPCStartRecorder("compute.InstanceGroupManagersService.ListManagedInstances")
 	filter := func(response *compute.InstanceGroupManagersListManagedInstancesResponse) error {
 		for _, instance := range response.ManagedInstances {
+			klog.V(3).Infof("ListManagedInstances (%q, %q, %d): ManagedInstance: %#v", groupLocation, groupName, instanceID, instance)
 			// If the instance is found we return foundError which allows us to exit early and
 			// not go through the rest of the pages. The ListManagedInstances call does not
 			// support filtering so we have to resort to this hack.
 			if instance.Id == instanceID {
+				klog.V(2).Infof("ListManagedInstances (%q, %q, %d), returning foundError to short-circuit", groupLocation, groupName, instanceID)
 				return &foundError{}
 			}
 		}
@@ -825,16 +827,20 @@ func groupHasInstance(ctx *controllerContext, groupLocation, groupName string, i
 	}
 	err := compute.NewInstanceGroupManagersService(ctx.gcpCfg.Compute).ListManagedInstances(ctx.gcpCfg.ProjectID, groupLocation, groupName).Pages(context.TODO(), filter)
 	if err != nil {
+		klog.V(3).Infof("ListManagedInstances (%q, %q, %d) got error of type %T: %[1]v", err)
 		switch err.(type) {
 		case *foundError:
+			klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns OK")
 			recordMetric(csrmetrics.OutboundRPCStatusOK)
 			return true, nil
 		default:
+			klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns ERR")
 			recordMetric(csrmetrics.OutboundRPCStatusError)
 			return false, err
 		}
-
 	}
+
+	klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns NOT FOUND")
 	recordMetric(csrmetrics.OutboundRPCStatusOK)
 	return false, nil
 }
