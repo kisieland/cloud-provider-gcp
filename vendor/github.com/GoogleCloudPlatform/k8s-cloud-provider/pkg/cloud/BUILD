@@ -8,6 +8,7 @@ go_library(
         "doc.go",
         "gce_projects.go",
         "gen.go",
+        "observe.go",
         "op.go",
         "project.go",
         "ratelimit.go",

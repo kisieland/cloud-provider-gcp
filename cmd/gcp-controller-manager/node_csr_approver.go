@@ -787,7 +787,7 @@ func clusterHasInstance(ctx *controllerContext, instance *compute.Instance, inst
 
 		// Note: use igLocation here instead of instanceZone.
 		// InstanceGroups can be regional, instances are always zonal.
-		ok, err := groupHasInstance(ctx, igLocation, igName, instance.Id)
+		ok, err := groupHasInstance(ctx, igLocation, igName, instance.Name, instance.Id)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("checking that group %q contains instance %v: %v", igName, instance.Id, err))
 			continue
@@ -810,37 +810,40 @@ func (*foundError) Error() string {
 	return "found"
 }
 
-func groupHasInstance(ctx *controllerContext, groupLocation, groupName string, instanceID uint64) (bool, error) {
+func groupHasInstance(ctx *controllerContext, groupLocation, groupName, instanceName string, instanceID uint64) (bool, error) {
 	recordMetric := csrmetrics.OutboundRPCStartRecorder("compute.InstanceGroupManagersService.ListManagedInstances")
-	filter := func(response *compute.InstanceGroupManagersListManagedInstancesResponse) error {
+	filter := func(response *betacompute.InstanceGroupManagersListManagedInstancesResponse) error {
 		for _, instance := range response.ManagedInstances {
-			klog.V(3).Infof("ListManagedInstances (%q, %q, %d): ManagedInstance: %#v", groupLocation, groupName, instanceID, instance)
+			klog.V(3).Infof("ListManagedInstances (%q, %q, %q, %d): ManagedInstance: %#v", groupLocation, groupName, instanceName, instanceID, instance)
 			// If the instance is found we return foundError which allows us to exit early and
 			// not go through the rest of the pages. The ListManagedInstances call does not
 			// support filtering so we have to resort to this hack.
 			if instance.Id == instanceID {
 				klog.V(2).Infof("ListManagedInstances (%q, %q, %d), returning foundError to short-circuit", groupLocation, groupName, instanceID)
 				return &foundError{}
+			} else if instance.Name == instanceName {
+				klog.V(2).Infof("ListManagedInstances (%q, %q, %d), returning foundError to short-circuit by name", groupLocation, groupName, instanceID)
+				return &foundError{}
 			}
 		}
 		return nil
 	}
-	err := compute.NewInstanceGroupManagersService(ctx.gcpCfg.Compute).ListManagedInstances(ctx.gcpCfg.ProjectID, groupLocation, groupName).Pages(context.TODO(), filter)
+	err := betacompute.NewInstanceGroupManagersService(ctx.gcpCfg.BetaCompute).ListManagedInstances(ctx.gcpCfg.ProjectID, groupLocation, groupName).Pages(context.TODO(), filter)
 	if err != nil {
-		klog.V(3).Infof("ListManagedInstances (%q, %q, %d) got error of type %T: %[1]v", err)
+		klog.V(3).Infof("ListManagedInstances (%q, %q, %d) got error of type %T: %[1]v", groupLocation, groupName, instanceID, err)
 		switch err.(type) {
 		case *foundError:
-			klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns OK")
+			klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns OK", groupLocation, groupName, instanceID)
 			recordMetric(csrmetrics.OutboundRPCStatusOK)
 			return true, nil
 		default:
-			klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns ERR")
+			klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns ERR", groupLocation, groupName, instanceID)
 			recordMetric(csrmetrics.OutboundRPCStatusError)
 			return false, err
 		}
 	}
 
-	klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns NOT FOUND")
+	klog.V(3).Infof("ListManagedInstances (%q, %q, %d) returns NOT FOUND", groupLocation, groupName, instanceID)
 	recordMetric(csrmetrics.OutboundRPCStatusOK)
 	return false, nil
 }
